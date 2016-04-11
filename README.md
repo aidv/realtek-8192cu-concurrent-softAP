@@ -4,13 +4,13 @@ Some scripts to build and install the Realtek 8192cu driver via dkms, with concu
 
 ## Why?
 
-The default firmware-realtek drivers in debian jessie do not support simultaneous AP and client mode.  Similarly, the realtek 8192cu drivers don't support it by default.  So this repository has a tweaked version of the https://github.com/pvaret/rtl8192cu-fixes driver, and semi-automates the installation of the driver, hostapd, isc-dhcp-server and config files to get a (hopefully) working AP + client combination to save a lot of time and hassle.
+The default firmware-realtek drivers in debian jessie do not support simultaneous AP and client mode.  Similarly, the RealTek 8192cu drivers don't support it by default. Worse, RealTek drivers are using deprecated network stack and kernel API instead of nl32xx infrastructure, and need specific versions of wpa_supplicant and hostapd. So this repository has a tweaked version of the https://github.com/pvaret/rtl8192cu-fixes driver, and semi-automates the installation of the driver, hostapd, isc-dhcp-server and config files to get a (hopefully) working AP + client combination to save a lot of time and hassle.
 
 The initial directions to enable concurrent mode came from Aid Vllasaliu's excellent blog post here: http://randomstuffidosometimes.blogspot.com/2016/03/rtl8192cu-and-rtl8188cus-in-station-and.html
 
 ## Compatibility
 
-Tested under Debian 8.3 Jessie on a Beaglebone Black with 4.1.18 kernel with RTL8192CU chipset.  No guarantees but expected to work on other similar configurations and other hardware such as RPi too. 
+Tested under Debian 8.3 Jessie on a Beaglebone Black with 4.1.18 kernel with RTL8192CU chipset, and under NOOBS Jessie install on Raspberry Pi 1A+ with 4.1.19 kernel. No guarantees but expected to work on other similar configurations and other hardware such as RPi too. 
 Minimum kernel version of 3.11, and dkms support required.
 
 ## Pre-requisites
@@ -28,6 +28,20 @@ Jessie:
 
     apt-get update
     apt-get install linux-headers-$(uname -r) build-essential dkms git psmisc libnl-3-dev libnl-genl-3-dev pkg-config
+
+Special issue for Jessie on Raspberry Pi (NOOBS install kernel 4.1.19): kernel headers are not packaged and have to be downloaded from this site : choose the version matching 'uname -r' command, and -v7 for Pi2-3  
+
+    wget https://www.niksula.hut.fi/~mhiienka/Rpi/linux-headers-rpi/linux-headers-#VERSION#_armhf.deb
+    apt-get update
+    apt-get install  build-essential dkms git psmisc libnl-3-dev libnl-genl-3-dev pkg-config
+    
+unfortunately 'apt-get install dkms' installs 3.6 kernel. So remove it first before anything else...
+
+    apt-get remove linux-image-3.6
+    
+then install kernel headers :
+
+    dpkg -i linux-headers-*.deb
 
 ### Make sure your build environment is ok
 
@@ -62,10 +76,15 @@ Make the driver and install via dkms:
     #      git clone https://github.com/pvaret/rtl8192cu-fixes.git
     #   Make sure to manually enable concurrency in rtl8192cu-fixes/include/autoconf.h - see "Notes" section below
 
+The following lines are failing on RPI :
+
     cd rtl8192cu-fixes
     make
     make install
     cd ..
+
+So just start here, it worked perfectly !
+
     dkms add ./rtl8192cu-fixes
     dkms install 8192cu/1.10
     depmod -a
@@ -184,9 +203,20 @@ To check that the driver installed successfully, run `iwconfig`. It should provi
 
 If not, run `dkms status` and check for a message indicating the driver module is installed.  If you get output like `"#8192cu, 1.10, ... (WARNING! Diff between built and installed module!)"`, it means that there is another module loaded instead of the one we just built.  In this case, double check the "Removal of previous driver modules" section above and then start again!
 
+Unfortunately, the driver uses obsolete network stack, and is uncompatible with Jessie's wpa_supplicant version >2.3. So if your system provides version > 2.3, wpa_supplicant has to be downgraded to v 1.0. The easyest way (on RPI) is to download Wheezy's package (maybe some apt-pinning needed to prevent future upgrades) :
+
+    wget http://mirrordirector.raspbian.org/raspbian/pool/main/w/wpa/wpasupplicant_1.0-3+deb7u3_armhf.deb
+    dpkg -i wpasupplicant_1.0-3+deb7u3_armhf.deb
+
+Now interface wlan0 can be configured as expected for connecting with a WPA2 network : 
+
 Before bringing up the wireless interfaces, if you need to create a wpa_supplicant configuration for the client connection, run
 
-    wpa_passprase SSID_To_Connect_To SSID_Password > /etc/wpa_supplicant.conf
+    wpa_passphrase SSID_To_Connect_To SSID_Password > /etc/wpa_supplicant.conf
+
+or on RPI : 
+
+    wpa_passphrase SSID_To_Connect_To SSID_Password > /etc/wpa_supplicant/wpa_supplicant.conf
 
 ### Bring-up code
 Running the following "Bring-up" code will create a softAP and also connect the client.  After running, you can run ifconfig and do some ping tests to verify.  If not, check the hostapd and dhcpd logs.
